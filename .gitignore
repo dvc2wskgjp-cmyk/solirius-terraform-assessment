@@ -1,0 +1,21 @@
+
+# Terraform working files
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+backend.hcl
+crash.log
+crash.*.log
+
+# .NET generated files
+**/bin/
+**/obj/
+
+# Local editor files
+.vs/
+.vscode/
+*.user
+*.suo
+.DS_Store

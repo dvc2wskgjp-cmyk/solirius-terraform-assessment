@@ -1,0 +1,54 @@
+
+name: Build and Deploy .NET API
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "src/**"
+      - "tests/**"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore API dependencies
+        run: dotnet restore src/SampleApi/SampleApi.csproj
+
+      - name: Build application
+        run: dotnet build src/SampleApi/SampleApi.csproj --configuration Release --no-restore
+
+      - name: Run automated tests
+        run: dotnet test tests/SampleApi.Tests/SampleApi.Tests.csproj --configuration Release
+
+      - name: Publish application
+        run: dotnet publish src/SampleApi/SampleApi.csproj --configuration Release --no-build --output ./publish
+
+      - name: Log in to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy to Azure App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: app-solirius-steven-demo
+          package: ./publish
