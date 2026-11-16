@@ -1,98 +1,141 @@
-# Solirius — Terraform Assessment
+# Solirius — Terraform Technical Assessment
 
 ## Overview
 
-For this assessment, I've put together a Terraform configuration to provision an Azure App Service running a .NET 8 Web API, together with an Azure SQL S0 database.
+For this assessment, I've put together a Terraform configuration for hosting a .NET 10 Web API on Azure App Service, alongside an Azure SQL S0 database.
 
-I've also included a GitHub Actions workflow for building, testing and deploying changes to the application.
+I've also included a GitHub Actions workflow to validate the infrastructure configuration, build and test the application, and support deployment to Azure when the required environment and credentials are available.
 
-I've tried to keep the solution fairly straightforward, but structured it so the infrastructure components can be managed and extended separately.
+I've approached this from an infrastructure architecture and delivery perspective. I wanted to keep the solution straightforward while separating the components so they can be configured and developed independently.
 
-The configuration has been validated locally using GitHub Codespaces. I haven't carried out a live Azure deployment.
+The Terraform configuration and application have been validated locally using GitHub Codespaces. I haven't carried out a live Azure deployment.
 
 ## 1. My approach
 
-I started by looking at the infrastructure requirements and separating out the application hosting and database components.
+I split the infrastructure into two Terraform modules:
 
-I decided to use two Terraform modules:
+- `modules/app-service` — Linux App Service Plan and Web App.
+- `modules/sql-database` — Azure SQL logical server and database.
 
-- `modules/app-service` — Linux App Service Plan and .NET 8 Web App.
-- `modules/sql-database` — Azure SQL logical server and S0 database.
+The root `main.tf` brings these modules together, creates the resource group and passes the required inputs between components.
 
-The root `main.tf` brings both modules together and passes in the resource names, location and other required settings.
+I chose this structure to keep the application hosting and database infrastructure separate. It also means changes to one component don't necessarily require changes to the other.
 
-I went with this approach because I wanted to keep the different parts of the infrastructure separate. If I needed to change the application hosting later, I wouldn't necessarily need to change the database module.
+The configuration supports different deployment environments through variables for the environment, Azure region, resource naming suffix and hosting sizes.
 
-For the initial build, I've used UK South, a B1 App Service Plan and the requested S0 SQL database.
-
-These are fixed in the current configuration. For a larger implementation, I'd make the resource names, sizing and environment settings configurable.
+The defaults are UK South, a B1 App Service Plan and the requested S0 SQL database.
 
 ## 2. Infrastructure and connectivity
 
-The App Service module creates the Linux hosting plan and Web App, with HTTPS enforced and the application runtime set to .NET 8.
+The App Service module defines a Linux App Service Plan and Web App, with HTTPS enforced and the runtime set to .NET 10.
 
-The SQL module creates the logical server and database, with a minimum TLS version of 1.2.
+The SQL module defines an Azure SQL logical server, with a minimum TLS version of 1.2, and an S0 database by default.
 
-One thing I wanted to demonstrate was how the modules could exchange information.
-
-The SQL module exposes the server address and database name through Terraform outputs. These are then passed into the App Service module and configured as application settings:
+The SQL module provides outputs for the server address and database name. The root configuration passes those into the App Service module as application settings:
 
 - `Database__Server`
 - `Database__Name`
 
-This avoids manually repeating the SQL server address in the application hosting configuration.
+This demonstrates how Terraform modules can exchange information without duplicating resource values.
 
-The sample Web API doesn't currently connect to SQL. I've configured the infrastructure and passed the database information into the Web App, but a working connection would still require application database-access code, authentication, appropriate database permissions and network access.
+The App Service module also exposes the Web App name, URL and Azure resource ID, which are made available through root Terraform outputs.
 
-For a live environment, I'd want to review that connectivity properly, including managed identity, restricted SQL access and whether Private Endpoints and VNet integration are appropriate.
+The sample Web API doesn't currently connect to SQL. A working connection would still require application database-access code, authentication, permissions and network access.
 
-## 3. Terraform state and security
+For a customer environment, I'd review using App Service VNet integration, an Azure SQL private endpoint, private DNS and managed identity with Microsoft Entra authentication. That would provide a more controlled approach than broadly allowing public SQL access.
 
-I've configured Terraform to use Azure Blob Storage as the intended remote state backend.
+## 3. Terraform reusability
 
-The backend is declared in `backend.tf`, with example settings in `backend.hcl.example`.
+I've made the deployment settings configurable rather than fixing all the values inside the modules.
 
-I chose Azure Blob Storage partly because it supports state locking through Blob leases. I wouldn't want two engineers or automated processes making changes against the same state at the same time.
+The root configuration accepts:
 
-The storage account and container would need to be created separately before the first live deployment.
+| Variable | Purpose | Default |
+|---|---|---|
+| `environment` | Deployment environment: dev, staging or prod | `dev` |
+| `location` | Azure region | `uksouth` |
+| `name_suffix` | Lowercase suffix to distinguish resource names | Required |
+| `app_service_sku` | App Service Plan pricing tier | `B1` |
+| `database_sku` | Azure SQL database tier | `S0` |
+| `sql_admin_username` | SQL administrator username | Required |
+| `sql_admin_password` | SQL administrator password | Required, sensitive |
 
-I've also kept the SQL administrator username and password out of the main Terraform resource configuration. The password variable is marked as sensitive, although I'm aware that sensitive values may still be stored in Terraform state.
+The `name_suffix` variable is used in resource naming to reduce collisions when different people deploy the configuration. It must contain between 3 and 12 lowercase letters or numbers.
 
-For that reason, I'd want the state storage secured using Microsoft Entra ID, appropriate role assignments and restricted access.
+For example, using `environment = "dev"` and `name_suffix = "team01"` produces an application name of `app-solirius-dev-team01`.
 
-The backend has been configured but hasn't been tested against a live Azure Storage Account.
+This doesn't guarantee a globally unique Azure name, so name availability would still need checking during a live deployment.
 
-## 4. Application build and CI/CD
+For separate development, staging and production deployments, I would use distinct configuration values, state keys and deployment controls.
 
-I've included a small ASP.NET Core Web API targeting .NET 8 in `src/SampleApi`.
+## 4. Terraform state and security
 
-The application is deliberately simple. I wanted to concentrate on demonstrating the infrastructure deployment and how future code changes could be handled.
+I've configured Azure Blob Storage as the intended remote Terraform state backend.
 
-I've used GitHub Actions for the CI/CD workflow, located at:
+The backend declaration is in `backend.tf`, with example settings in `backend.hcl.example`.
+
+I chose Azure Blob Storage because it supports state locking using Blob leases. That helps prevent simultaneous Terraform operations from making conflicting changes against the same state.
+
+The storage account and container must be created separately before the first live deployment. I would secure them using Microsoft Entra ID, appropriate role assignments, restricted access and storage security controls.
+
+The SQL administrator password is marked as sensitive in Terraform. However, sensitive values can still be stored in Terraform state, so the state storage must be protected.
+
+For a production implementation, I'd prefer to review Microsoft Entra authentication and managed identity to reduce reliance on SQL administrator credentials.
+
+The remote backend configuration has not been tested against live Azure Storage.
+
+## 5. Application build and CI/CD
+
+The sample ASP.NET Core Web API is located in `src/SampleApi` and targets .NET 10.
+
+An xUnit test project is included in `tests/SampleApi.Tests`. The temperature conversion test checks that 20°C converts to 68°F.
+
+The GitHub Actions workflow is located at:
 
 `.github/workflows/deploy.yml`
 
-The workflow is configured to run when changes are pushed to the application or test files on the `main` branch.
+It contains two jobs:
 
-It checks out the repository, restores dependencies, builds the application, runs the tests and publishes the application ready for deployment.
+**Terraform validation**
 
-The final stages authenticate to Azure and deploy to App Service.
+- Checks out the repository.
+- Installs Terraform 1.17.2.
+- Initialises Terraform without connecting to the Azure backend.
+- Checks Terraform formatting.
+- Validates the Terraform configuration.
 
-I've used OpenID Connect (OIDC) for Azure authentication rather than relying on a long-lived client secret.
+**Application build and deployment**
 
-Before a live deployment, the Azure identity, federated credential and permissions would need to be configured. The workflow expects the GitHub secrets `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` and `AZURE_SUBSCRIPTION_ID`.
+- Checks out the repository.
+- Installs .NET 10.
+- Restores dependencies.
+- Builds the Web API.
+- Runs the automated tests.
+- Publishes the application package.
 
-In a production environment, I'd also want a clearer separation between build and release, with appropriate approvals and controls around deployment.
+Both jobs run automatically on relevant pushes to `main`, including changes to application code, tests, Terraform configuration or the workflow itself.
 
-The workflow has been defined but hasn't been executed against Azure.
+Azure authentication and deployment are currently restricted to manually triggered workflow runs.
 
-## 5. Validation and testing
+This allows the automated validation and application tests to operate without Azure credentials. It also means a successful normal workflow run does not represent a successful Azure deployment.
 
-I carried out the available checks locally in GitHub Codespaces.
+The workflow uses OpenID Connect (OIDC) for Azure authentication and expects these GitHub secrets:
+
+- `AZURE_CLIENT_ID`
+- `AZURE_TENANT_ID`
+- `AZURE_SUBSCRIPTION_ID`
+
+It also expects the GitHub Actions variable `AZURE_WEBAPP_NAME` to match the Web App created by Terraform.
+
+The Azure identity, federated credential, appropriate permissions and target application would need to exist before running a deployment.
+
+For a production pipeline, I'd separate build and deployment into distinct jobs, retain the published build artifact, introduce deployment approvals and consider deployment slots and rollback procedures.
+
+## 6. Validation and testing
+
+I've completed the following checks locally in GitHub Codespaces.
 
 ### Terraform validation
-
-I ran:
 
 ```bash
 terraform init -backend=false
@@ -100,47 +143,39 @@ terraform fmt -check -recursive
 terraform validate
 ```
 
-The configuration passed the formatting and validation checks.
-
-Using `-backend=false` allowed me to initialise and validate the Terraform configuration without connecting to Azure Storage.
+The configuration passed the local formatting and validation checks.
 
 ![Terraform validation results](docs/screenshots/terraform-validation.png)
 
 ### Application build and testing
 
-I built the Web API using:
-
 ```bash
 dotnet build src/SampleApi/SampleApi.csproj --configuration Release
-```
-
-I also created an xUnit test project and added a simple test against the application's temperature conversion calculation.
-
-I ran:
-
-```bash
 dotnet test tests/SampleApi.Tests/SampleApi.Tests.csproj --configuration Release
 ```
 
-The build completed successfully and the test passed, with no failures.
+Following the upgrade to .NET 10 and correction of the temperature conversion calculation, the application built successfully and the unit test passed.
 
-![.NET build and test results](docs/screenshots/dotnet-build-tests.png)
+![Application build and test results](docs/screenshots/dotnet-build-tests.png)
 
-These checks confirm the Terraform configuration is valid and the sample application builds and passes its unit test. They don't demonstrate a live Azure deployment or database connection.
+The screenshots were captured during the assessment and should be read alongside the latest command results and GitHub Actions history.
 
-## 6. Deployment instructions
+These checks demonstrate local configuration validation and application testing. They do not establish that the infrastructure has been successfully deployed or that the application has connected to SQL.
+
+## 7. Deployment instructions
 
 ### Prerequisites
 
-A live deployment would require:
+A live deployment requires:
 
-- Terraform 1.17.x and the AzureRM provider specified in the repository.
-- An Azure subscription and an authenticated identity with appropriate permissions.
-- An Azure Storage Account and private Blob container for remote state.
-- A unique SQL logical server and Web App name where required.
-- The SQL administrator credentials supplied securely.
+- Terraform 1.17.x and the AzureRM provider version specified in the repository.
+- An Azure subscription and an identity with the required permissions.
+- An Azure Storage Account and Blob container for remote state.
+- A suitable naming suffix and available Azure resource names.
+- SQL administrator credentials supplied securely.
+- A configured GitHub OIDC identity if deploying through GitHub Actions.
 
-Terraform and AzureRM versions are pinned in `versions.tf`, and `.terraform.lock.hcl` is included in the repository.
+The Terraform and provider requirements are declared in `versions.tf`, and the provider dependency lock file is committed as `.terraform.lock.hcl`.
 
 ### Local validation
 
@@ -152,17 +187,25 @@ terraform fmt -check -recursive
 terraform validate
 ```
 
-### Azure deployment
+These commands validate the configuration without needing access to the remote Azure backend.
 
-First, create the dedicated storage resources for Terraform state and configure the relevant Azure access.
+### Azure infrastructure deployment
 
-Copy `backend.hcl.example` to `backend.hcl` and update it with the actual storage details.
+First create the Azure Storage Account and Blob container used for Terraform state, and configure the necessary access permissions.
 
-Configure Azure authentication and set `ARM_SUBSCRIPTION_ID` for the target subscription.
+Copy `backend.hcl.example` to `backend.hcl`, then replace the example storage details with the actual backend configuration.
 
-Supply `TF_VAR_sql_admin_username` and `TF_VAR_sql_admin_password` securely, without committing their values to Git.
+Set the required Terraform input values securely. For example:
 
-Then run:
+```bash
+export TF_VAR_name_suffix="team01"
+export TF_VAR_sql_admin_username="<username>"
+export TF_VAR_sql_admin_password="<password>"
+```
+
+The SQL credentials should be supplied through an appropriate secure mechanism and not committed into Git.
+
+Configure Azure authentication and the target subscription, then run:
 
 ```bash
 terraform init -backend-config=backend.hcl
@@ -170,39 +213,68 @@ terraform plan
 terraform apply
 ```
 
-These live deployment commands haven't been executed as part of this exercise.
+Review the plan before applying it.
 
-## 7. Alternative hosting — Azure Functions
+After a successful deployment, the root outputs can provide the Web App name, URL and Azure resource ID.
 
-The other option mentioned in the assessment was Azure Functions.
+### Application deployment
 
-If I needed to move the application away from App Service, I'd introduce a separate Terraform module for the Function App and its supporting resources.
+Configure GitHub Actions with the required Azure authentication secrets and set `AZURE_WEBAPP_NAME` to the Web App name returned by Terraform.
 
-I'd retain the SQL module and pass its outputs into the new hosting module.
+The application deployment can then be manually triggered through GitHub Actions.
 
-The application would need adapting to use HTTP-triggered Functions, and I'd update the GitHub Actions workflow to build and publish the Functions application.
+These live deployment steps have not been executed as part of the assessment.
 
-I'd also review the differences in scaling, authentication, network connectivity and monitoring before making that change.
+## 8. Alternative hosting — Azure Functions
 
-I've documented this as a migration approach rather than implementing a second hosting platform.
+The assessment also asks for an alternative approach using Azure Functions.
 
-## 8. What I'd improve with more time
+Rather than implement a second untested hosting platform, I've documented how I would approach the migration.
 
-For this assessment, I've concentrated on getting the Terraform configuration, sample application and CI/CD workflow in place and checking that the parts I could test locally work.
+I would introduce a separate Terraform hosting module containing an Azure Function App, an appropriate hosting plan and the required storage resources.
 
-If I were taking this into a live environment, my priorities would be:
+I would assess Flex Consumption against Premium hosting based on workload, network connectivity, scaling requirements and operational costs.
 
-- **Security and connectivity:** Complete the SQL authentication and network design, including managed identity, least-privilege access and appropriate network restrictions.
-- **Reusability:** Make the naming, resource sizing and environment settings configurable.
-- **Deployment controls:** Introduce separate environments, approval gates and a clear rollback approach.
-- **Monitoring:** Add application diagnostics, logging, monitoring and alerting.
-- **Testing:** Extend the unit tests to cover API endpoints and database integration.
-- **Alternative hosting:** Implement and validate the Azure Functions module if both hosting options were required.
+The existing .NET API would need adapting to the Azure Functions isolated worker model, with HTTP-triggered functions replacing the relevant API controller endpoints.
+
+I would retain the existing SQL module, although I would review how the Functions application authenticates to and connects with the database.
+
+The deployment workflow would also need changing to build and publish the Functions application and deploy it to the correct Function App.
+
+Before selecting this option, I'd compare cold-start behaviour, scaling, networking, monitoring and the operational requirements of the application.
+
+This remains a documented migration approach rather than an implemented or validated second hosting option.
+
+## 9. Assumptions and trade-offs
+
+I've made several decisions to keep the assessment focused:
+
+- App Service was selected as a straightforward hosting option for a small .NET Web API.
+- The requested S0 SQL database remains the default.
+- Terraform modules separate application hosting and database infrastructure.
+- The sample API demonstrates build and test automation, not functional SQL integration.
+- Remote state is configured but requires an existing Azure Storage backend.
+- Azure deployment is manual because the required subscription, identity and application have not been configured for a live test.
+- The Azure Functions option is documented as an alternative design, rather than implemented alongside App Service.
+
+These choices are suitable for demonstrating the initial approach, but I wouldn't consider this a complete production deployment.
+
+## 10. What I'd improve for a live environment
+
+My next priorities would be:
+
+- **Security and connectivity:** Complete the managed identity, SQL permissions, private networking and secrets design.
+- **Deployment controls:** Separate build and deployment jobs, introduce approvals, and add a tested rollback process.
+- **Environment management:** Use separate environment configurations, state keys and GitHub deployment environments.
+- **Monitoring:** Add Application Insights, diagnostic logging, alerting and operational monitoring.
+- **Testing:** Add API-level, database integration and end-to-end deployment tests.
+- **Resilience:** Review availability, database backup and recovery requirements, and appropriate production hosting tiers.
+- **Alternative hosting:** Implement and validate the Azure Functions module if both hosting options are required.
 
 ## Summary
 
-The Terraform configuration passes local formatting and validation checks. The .NET 8 application builds successfully, and the automated unit test passes.
+The assessment includes Terraform modules for Azure App Service and Azure SQL, configurable deployment settings, root and module outputs, remote state configuration, a .NET 10 Web API and automated GitHub Actions checks.
 
-The repository also includes the GitHub Actions workflow, remote state configuration and a documented approach for moving to Azure Functions.
+The Terraform configuration passes local validation, and the .NET 10 application builds and passes its unit test.
 
-I haven't deployed the solution into Azure, so the live infrastructure, database connectivity and end-to-end deployment would still need to be tested.
+I haven't deployed the solution into Azure, so live infrastructure provisioning, database connectivity and end-to-end deployment remain untested.

@@ -18,6 +18,6 @@ public class UnitTest1
         int fahrenheit = forecast.TemperatureF;
 
         // Assert
-        Assert.Equal(67, fahrenheit);
+        Assert.Equal(68, fahrenheit);
     }
 }

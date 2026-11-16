@@ -9,6 +9,8 @@ on:
       - "src/**"
       - "tests/**"
       - ".github/workflows/deploy.yml"
+      - "**/*.tf"
+      - ".terraform.lock.hcl"
   workflow_dispatch:
 
 permissions:
@@ -16,6 +18,28 @@ permissions:
   id-token: write
 
 jobs:
+  terraform-validation:
+    name: Validate Terraform
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.17.2"
+
+      - name: Initialise Terraform without Azure backend
+        run: terraform init -backend=false -input=false
+
+      - name: Check Terraform formatting
+        run: terraform fmt -check -recursive
+
+      - name: Validate Terraform configuration
+        run: terraform validate
+
   build-and-deploy:
     runs-on: ubuntu-latest
 
@@ -23,10 +47,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up .NET 8
+      - name: Set up .NET 10
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "8.0.x"
+          dotnet-version: "10.0.x"
 
       - name: Restore API dependencies
         run: dotnet restore src/SampleApi/SampleApi.csproj
@@ -52,5 +76,5 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         uses: azure/webapps-deploy@v3
         with:
-          app-name: app-solirius-steven-demo
+          app-name: ${{ vars.AZURE_WEBAPP_NAME }}
           package: ./publish

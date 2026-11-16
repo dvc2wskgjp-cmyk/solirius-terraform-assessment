@@ -1,14 +1,16 @@
 
 resource "azurerm_resource_group" "main" {
-  name     = "rg-solirius-assessment"
-  location = "uksouth"
+  name     = "rg-solirius-${var.environment}-${var.name_suffix}"
+  location = var.location
 }
 
 module "app_service" {
   source = "./modules/app-service"
 
-  plan_name           = "asp-solirius-assessment"
-  web_app_name        = "app-solirius-steven-demo"
+  app_service_sku = var.app_service_sku
+
+  plan_name           = "asp-solirius-${var.environment}-${var.name_suffix}"
+  web_app_name        = "app-solirius-${var.environment}-${var.name_suffix}"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
 
@@ -19,8 +21,10 @@ module "app_service" {
 module "sql_database" {
   source = "./modules/sql-database"
 
-  server_name         = "sql-solirius-steven-demo"
-  database_name       = "sqldb-solirius-demo"
+  database_sku = var.database_sku
+
+  server_name         = "sql-solirius-${var.environment}-${var.name_suffix}"
+  database_name       = "sqldb-solirius-${var.environment}"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
 

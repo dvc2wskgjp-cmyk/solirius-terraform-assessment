@@ -29,3 +29,15 @@ variable "sql_admin_password" {
   description = "SQL administrator password"
   sensitive   = true
 }
+
+variable "database_sku" {
+  description = "Azure SQL database service tier"
+  type        = string
+  default     = "S0"
+}
+
+variable "app_service_sku" {
+  description = "App Service Plan pricing tier"
+  type        = string
+  default     = "B1"
+}

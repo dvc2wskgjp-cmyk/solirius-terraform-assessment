@@ -28,3 +28,9 @@ variable "database_name" {
   description = "Application database name"
   type        = string
 }
+
+variable "app_service_sku" {
+  description = "Azure App Service Plan pricing tier"
+  type        = string
+  default     = "B1"
+}

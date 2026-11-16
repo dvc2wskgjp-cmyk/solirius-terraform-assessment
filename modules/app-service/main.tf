@@ -5,7 +5,7 @@ resource "azurerm_service_plan" "main" {
   location            = var.location
 
   os_type  = "Linux"
-  sku_name = "B1"
+  sku_name = var.app_service_sku
 }
 
 resource "azurerm_linux_web_app" "main" {
@@ -22,7 +22,7 @@ resource "azurerm_linux_web_app" "main" {
   }
   site_config {
     application_stack {
-      dotnet_version = "8.0"
+      dotnet_version = "10.0"
     }
   }
 }

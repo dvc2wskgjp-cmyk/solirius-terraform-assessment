@@ -13,5 +13,5 @@ resource "azurerm_mssql_server" "main" {
 resource "azurerm_mssql_database" "main" {
   name      = var.database_name
   server_id = azurerm_mssql_server.main.id
-  sku_name  = "S0"
+  sku_name  = var.database_sku
 }
